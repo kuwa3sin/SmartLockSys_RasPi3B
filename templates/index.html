@@ -45,7 +45,7 @@
     function updateUI(data) {
       latest = data;
       const sensors = (data && data.sensors) || {};
-      const locked = sensors.locked;
+      const locked = sensors.effectiveLocked;
       const doorClosed = sensors.doorClosed;
 
       document.getElementById('status').textContent = `Dry-run: ${data.dryRun}`;
@@ -63,13 +63,8 @@
       }
 
       const toggle = document.getElementById('toggle');
-      if (locked === null || locked === undefined) {
-        toggle.disabled = true;
-        toggle.textContent = 'トグル不可';
-      } else {
-        toggle.disabled = false;
-        toggle.textContent = locked ? '開錠' : '施錠';
-      }
+      toggle.disabled = false;
+      toggle.textContent = (locked === true) ? '開錠' : '施錠';
 
       const al = (data && data.autoLock) || {};
       const enabled = !!al.enabled;
@@ -106,7 +101,7 @@
 
     document.getElementById('toggle').addEventListener('click', async () => {
       const sensors = (latest && latest.sensors) || {};
-      const locked = sensors.locked;
+      const locked = sensors.effectiveLocked;
       const doorClosed = sensors.doorClosed;
 
       // unlocked->lock の時のみ事前チェック

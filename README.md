@@ -109,6 +109,17 @@ export SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW=true
 - ドアが開いている状態で施錠しようとすると、ブラウザ側でダイアログを表示し、サーバー側でも施錠を拒否します。
 - 自動施錠は「前回の開錠」からの経過時間と「ドアが閉」の両方を満たした場合に施錠します。
 
+### pigpio と gpiozero の使い分け（推奨）
+
+- **推奨: pigpio**
+	- デーモン(`pigpiod`)経由でGPIOを扱うため、負荷が高い状況でも比較的安定しやすい
+	- 入力側は`glitch filter`などのノイズ対策が強い
+- **gpiozero**
+	- Python側の高レベルAPIで扱いやすい
+	- ただし本プロジェクトのサーボ制御は、`GPIOZERO_PIN_FACTORY=pigpio`を指定するとgpiozero内部でもpigpioバックエンドを利用できます
+
+本実装ではリードスイッチ入力は **pigpioを優先**し、pigpioが利用できない場合のみgpiozeroへフォールバックします。
+
 ## サービス化
 
 `/etc/systemd/system/smartlock.service` を作成：

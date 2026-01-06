@@ -32,6 +32,7 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
     state_lock = threading.Lock()
     auto_lock_seconds: float = 0.0
     last_unlock_ts: Optional[float] = None
+    virtual_locked: Optional[bool] = None
 
     def _now() -> float:
         # MicroPython互換も意識してtime.timeを使用
@@ -40,11 +41,22 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
     def _read_sensor_state() -> Dict[str, Any]:
         lock_on = sensors.lock_switch_on() if sensors else None
         door_on = sensors.door_switch_on() if sensors else None
+
+        state_lock.acquire()
+        try:
+            v_locked = virtual_locked
+        finally:
+            state_lock.release()
+
+        effective_locked = lock_on if lock_on is not None else v_locked
         return {
             "lockSwitchOn": lock_on,
             "doorSwitchOn": door_on,
             "locked": lock_on,
             "doorClosed": door_on,
+            "effectiveLocked": effective_locked,
+            "lockKnown": effective_locked is not None,
+            "lockSource": "sensor" if lock_on is not None else ("virtual" if v_locked is not None else "unknown"),
         }
 
     def _current() -> Dict[str, Any]:
@@ -87,7 +99,24 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
         return None if closed is None else (not closed)
 
     def _is_locked() -> Optional[bool]:
-        return None if not sensors else sensors.is_locked()
+        state_lock.acquire()
+        try:
+            v_locked = virtual_locked
+        finally:
+            state_lock.release()
+
+        if not sensors:
+            return v_locked
+        locked = sensors.is_locked()
+        return locked if locked is not None else v_locked
+
+    def _set_virtual_locked(value: Optional[bool]) -> None:
+        nonlocal virtual_locked
+        state_lock.acquire()
+        try:
+            virtual_locked = value
+        finally:
+            state_lock.release()
 
     def _set_last_unlock_now() -> None:
         nonlocal last_unlock_ts
@@ -135,6 +164,7 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
             return jsonify(response), 409
 
         action_result = servo.lock()
+        _set_virtual_locked(True)
         response = _current()
         response["lastAction"] = action_result
         return jsonify(response)
@@ -145,6 +175,7 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
         action_result = servo.unlock()
 
         _set_last_unlock_now()
+        _set_virtual_locked(False)
         
         response = _current()
         response["lastAction"] = action_result  # "unlocked"
@@ -153,16 +184,11 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
     @app.post("/api/toggle")
     def do_toggle() -> Any:
         locked = _is_locked()
-        # センサー未接続時は安全側: 明示エンドポイント使用を推奨
-        if locked is None:
-            response = _current()
-            response["error"] = "sensor_unavailable"
-            response["message"] = "施錠状態センサーが未設定のためトグルできません"
-            return jsonify(response), 409
-
-        if locked:
+        # 状態不明時は安全側で「開錠」を実行して状態を確定させる
+        if locked is None or locked is True:
             action_result = servo.unlock()
             _set_last_unlock_now()
+            _set_virtual_locked(False)
             response = _current()
             response["lastAction"] = action_result
             return jsonify(response)
@@ -176,6 +202,7 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
             return jsonify(response), 409
 
         action_result = servo.lock()
+        _set_virtual_locked(True)
         response = _current()
         response["lastAction"] = action_result
         return jsonify(response)
