@@ -15,13 +15,13 @@
   },
   "sensors": {
     "lock": {
-      "pin": null,
+      "pin": 23,
       "pull_up": true,
       "active_low": true,
       "bounce_time": 0.05
     },
     "door": {
-      "pin": null,
+      "pin": 24,
       "pull_up": true,
       "active_low": true,
       "bounce_time": 0.05
