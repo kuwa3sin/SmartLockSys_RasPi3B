@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Optional
-
-import os
 import threading
 import time
 
@@ -25,23 +23,23 @@ except ImportError:  # pragma: no cover - direct script execution
     from sensor_controller import ReedSwitchMonitor  # type: ignore
 
 
-def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = None) -> Flask:
+def create_app(
+    servo: ServoController,
+    sensors: Optional[ReedSwitchMonitor] = None,
+    *,
+    auto_lock_seconds_default: float = 0.0,
+    action_confirm_timeout_s: float = 3.0,
+) -> Flask:
     # テンプレートディレクトリはパッケージ内の templates 配下を指す
     template_dir = Path(__file__).resolve().parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir))
 
     state_lock = threading.Lock()
-    auto_lock_seconds: float = 0.0
+    auto_lock_seconds: float = float(auto_lock_seconds_default)
     last_unlock_ts: Optional[float] = None
     virtual_locked: Optional[bool] = None
 
-    # 施錠/開錠の完了確認タイムアウト（秒）
-    try:
-        action_confirm_timeout_s = float(
-            os.getenv("SMARTLOCK_ACTION_CONFIRM_TIMEOUT", "3.0")  # type: ignore[name-defined]
-        )
-    except Exception:
-        action_confirm_timeout_s = 3.0
+    action_confirm_timeout_s = float(action_confirm_timeout_s)
 
     def _now() -> float:
         # MicroPython互換も意識してtime.timeを使用

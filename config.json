@@ -1,0 +1,44 @@
+{
+  "dry_run": false,
+  "logging": {
+    "level": "INFO"
+  },
+  "servo": {
+    "pin": 12,
+    "min_pulse_width": 0.0005,
+    "max_pulse_width": 0.0025,
+    "neutral_angle": 0.0,
+    "lock_angle": -85.0,
+    "unlock_angle": 85.0,
+    "move_time": 0.5,
+    "hold_time": 0.5
+  },
+  "sensors": {
+    "lock": {
+      "pin": null,
+      "pull_up": true,
+      "active_low": true,
+      "bounce_time": 0.05
+    },
+    "door": {
+      "pin": null,
+      "pull_up": true,
+      "active_low": true,
+      "bounce_time": 0.05
+    }
+  },
+  "web": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "debug": false,
+    "ssl": {
+      "mode": "none",
+      "cert": null,
+      "key": null
+    }
+  },
+  "features": {
+    "auto_lock_seconds": 0,
+    "action_confirm_timeout_seconds": 3.0
+  }
+}

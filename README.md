@@ -38,6 +38,28 @@ cd ~/smartlock
 GPIOZERO_PIN_FACTORY=pigpio python3 -m smartlock_servo --pin 12
 ```
 
+## 設定ファイル（推奨）
+
+本プロジェクトは `config.json` を設定の中心として利用します。
+
+- 設定ファイル: [SmartLock_FU_raspi3/config.json](SmartLock_FU_raspi3/config.json)
+- 起動時に `--config` で指定可能（省略時は `config.json`）
+
+例:
+
+```bash
+sudo pigpiod
+cd ~/smartlock
+GPIOZERO_PIN_FACTORY=pigpio python3 -m smartlock_servo --config config.json
+```
+
+### どこに何を書くか
+
+- サーボ: `servo.*`
+- リードスイッチ: `sensors.lock.*` / `sensors.door.*`
+- Web: `web.*` / `web.ssl.*`
+- 自動施錠/完了確認: `features.auto_lock_seconds` / `features.action_confirm_timeout_seconds`
+
 ### 主要オプション
 
 | オプション            | 説明                           | デフォルト |

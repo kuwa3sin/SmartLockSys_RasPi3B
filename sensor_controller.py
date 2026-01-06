@@ -86,6 +86,38 @@ class ReedSwitchMonitor:
         door_cfg = None if door_pin is None else ReedSwitchConfig(door_pin, door_pull_up, door_active_low)
         return ReedSwitchMonitor(lock_cfg, door_cfg, dry_run=dry_run)
 
+    @staticmethod
+    def from_config(config: Any, *, dry_run: bool = False) -> "ReedSwitchMonitor":
+        """設定(dict)から生成する。
+
+        期待する構造:
+        {
+          "lock": {"pin": 23, "pull_up": true, "active_low": true, "bounce_time": 0.05},
+          "door": {"pin": 24, ...}
+        }
+        """
+        if not isinstance(config, dict):
+            return ReedSwitchMonitor(None, None, dry_run=dry_run)
+
+        def _mk(cfg: Any) -> Optional[ReedSwitchConfig]:
+            if not isinstance(cfg, dict):
+                return None
+            pin = cfg.get("pin")
+            if pin is None:
+                return None
+            try:
+                pin_i = int(pin)
+            except Exception:
+                return None
+            pull_up = bool(cfg.get("pull_up", True))
+            active_low = bool(cfg.get("active_low", True))
+            bounce_time = float(cfg.get("bounce_time", 0.05))
+            return ReedSwitchConfig(pin_i, pull_up, active_low, bounce_time)
+
+        lock_cfg = _mk(config.get("lock"))
+        door_cfg = _mk(config.get("door"))
+        return ReedSwitchMonitor(lock_cfg, door_cfg, dry_run=dry_run)
+
     def initialize(self) -> None:
         if self._initialized:
             return
