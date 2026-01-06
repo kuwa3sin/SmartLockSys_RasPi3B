@@ -273,9 +273,13 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
 
         nonlocal last_unlock_ts
 
-        # 起動時点で既に開錠なら、起動時刻を「前回開錠」とみなす
+        # 起動時点のセンサー状態をvirtual_lockedへ同期
         try:
-            if sensors_local.is_locked() is False:
+            initial_locked = sensors_local.is_locked()
+            if initial_locked is not None:
+                _set_virtual_locked(initial_locked)
+            # 起動時点で既に開錠なら、起動時刻を「前回開錠」とみなす
+            if initial_locked is False:
                 state_lock.acquire()
                 try:
                     last_unlock_ts = _now()
@@ -292,6 +296,10 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
                     locked = sensors_local.is_locked()
                     door_closed = sensors_local.is_door_closed()
 
+                    # センサーが取れているなら、常にvirtual_lockedへ反映
+                    if locked is not None:
+                        _set_virtual_locked(locked)
+
                     # 施錠->開錠への遷移を検知（手動開錠も含めてタイムスタンプ更新）
                     if prev_locked is True and locked is False:
                         state_lock.acquire()
@@ -300,7 +308,12 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
                         finally:
                             state_lock.release()
 
-                    prev_locked = locked
+                    # prev_locked は「観測できた値」で更新する
+                    if locked is not None:
+                        prev_locked = locked
+                    else:
+                        # 観測できないときは前回値を保持
+                        pass
 
                     state_lock.acquire()
                     try:
