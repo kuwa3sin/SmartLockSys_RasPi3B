@@ -12,9 +12,11 @@ from contextlib import suppress
 
 try:
     from .servo_controller import ServoConfig, ServoController
+    from .sensor_controller import ReedSwitchMonitor
     from .web_app import create_app
 except ImportError:  # pragma: no cover - direct script execution
     from servo_controller import ServoConfig, ServoController  # type: ignore
+    from sensor_controller import ReedSwitchMonitor  # type: ignore
     from web_app import create_app  # type: ignore
 
 
@@ -162,6 +164,7 @@ def main() -> None:
     )
 
     servo = ServoController(config, dry_run=dry_run)
+    sensors = ReedSwitchMonitor.from_env(dry_run=dry_run)
     _register_signal_handlers(servo)
 
     ssl_context = None
@@ -174,7 +177,8 @@ def main() -> None:
 
     try:
         servo.initialize()
-        app = create_app(servo)
+        sensors.initialize()
+        app = create_app(servo, sensors)
         app.run(
             host=args.host,
             port=args.port,
@@ -185,6 +189,8 @@ def main() -> None:
     except KeyboardInterrupt:
         logging.info('Interrupted; shutting down')
     finally:
+        with suppress(Exception):
+            sensors.cleanup()
         with suppress(Exception):
             servo.cleanup()
 

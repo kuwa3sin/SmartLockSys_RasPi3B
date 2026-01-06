@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+import threading
+import time
 
 try:
-    from flask import Flask, jsonify, render_template
+    from flask import Flask, jsonify, render_template, request  # pyright: ignore[reportMissingImports]
 except ImportError as exc:  # pragma: no cover - configuration error
     raise RuntimeError("Flask is required. Install with 'pip install flask'.") from exc
 
@@ -15,19 +18,57 @@ try:
 except ImportError:  # pragma: no cover - direct script execution
     from servo_controller import ServoController  # type: ignore
 
+try:
+    from .sensor_controller import ReedSwitchMonitor
+except ImportError:  # pragma: no cover - direct script execution
+    from sensor_controller import ReedSwitchMonitor  # type: ignore
 
-def create_app(servo: ServoController) -> Flask:
+
+def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = None) -> Flask:
     # テンプレートディレクトリはパッケージ内の templates 配下を指す
     template_dir = Path(__file__).resolve().parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir))
 
+    state_lock = threading.Lock()
+    auto_lock_seconds: float = 0.0
+    last_unlock_ts: Optional[float] = None
+
+    def _now() -> float:
+        # MicroPython互換も意識してtime.timeを使用
+        return float(time.time())
+
+    def _read_sensor_state() -> Dict[str, Any]:
+        lock_on = sensors.lock_switch_on() if sensors else None
+        door_on = sensors.door_switch_on() if sensors else None
+        return {
+            "lockSwitchOn": lock_on,
+            "doorSwitchOn": door_on,
+            "locked": lock_on,
+            "doorClosed": door_on,
+        }
+
     def _current() -> Dict[str, Any]:
-        """現在の設定とステータスを返す（モーメンタリー動作のためstateは固定）"""
+        """現在の設定とステータスを返す。"""
+        state_lock.acquire()
+        try:
+            als = auto_lock_seconds
+            lu = last_unlock_ts
+        finally:
+            state_lock.release()
+
+        sensors_state = _read_sensor_state()
+        now = _now()
+
         return {
             "status": "idle",  # 基本的に常に待機・脱力状態
             "dryRun": servo.dry_run,
             "pin": servo.config.pin,
-            # 新しい設定項目をレスポンスに追加
+            "sensors": sensors_state,
+            "autoLock": {
+                "seconds": als,
+                "enabled": als > 0,
+                "secondsSinceLastUnlock": None if lu is None else max(0.0, now - lu),
+            },
             "angles": {
                 "neutral": servo.config.neutral_angle,
                 "lock": servo.config.lock_angle,
@@ -36,36 +77,179 @@ def create_app(servo: ServoController) -> Flask:
             "times": {
                 "move": servo.config.move_time,
                 "hold": servo.config.hold_time,
-            }
+            },
         }
+
+    def _door_is_open() -> Optional[bool]:
+        if not sensors:
+            return None
+        closed = sensors.is_door_closed()
+        return None if closed is None else (not closed)
+
+    def _is_locked() -> Optional[bool]:
+        return None if not sensors else sensors.is_locked()
+
+    def _set_last_unlock_now() -> None:
+        nonlocal last_unlock_ts
+        state_lock.acquire()
+        try:
+            last_unlock_ts = _now()
+        finally:
+            state_lock.release()
+
+    def _set_auto_lock_seconds(value: float) -> None:
+        nonlocal auto_lock_seconds
+        state_lock.acquire()
+        try:
+            auto_lock_seconds = max(0.0, float(value))
+        finally:
+            state_lock.release()
 
     @app.get("/api/status")
     def status() -> Any:
         # ステータスをポーリングするためのエンドポイント
         return jsonify(_current())
 
+    @app.post("/api/autolock")
+    def set_autolock() -> Any:
+        payload = request.get_json(silent=True) or {}
+        seconds = payload.get("seconds", 0) if isinstance(payload, dict) else 0
+        try:
+            seconds_f = float(seconds)
+        except Exception:
+            return jsonify({"error": "invalid_seconds"}), 400
+
+        _set_auto_lock_seconds(seconds_f)
+        response = _current()
+        response["lastAction"] = "autolock_updated"
+        return jsonify(response)
+
     @app.post("/api/lock")
     def do_lock() -> Any:
-        # 施錠コマンドを発行
-        # コントローラーはブロック処理（回転→待機→戻る）を行い、完了後に戻り値を返す
+        # ドアが開いている場合は施錠拒否
+        door_open = _door_is_open()
+        if door_open is True:
+            response = _current()
+            response["error"] = "door_open"
+            response["message"] = "ドアが開いているため施錠できません"
+            return jsonify(response), 409
+
         action_result = servo.lock()
-        
         response = _current()
-        response["lastAction"] = action_result  # "locked"
+        response["lastAction"] = action_result
         return jsonify(response)
 
     @app.post("/api/unlock")
     def do_unlock() -> Any:
         # 解錠コマンドを発行
         action_result = servo.unlock()
+
+        _set_last_unlock_now()
         
         response = _current()
         response["lastAction"] = action_result  # "unlocked"
+        return jsonify(response)
+
+    @app.post("/api/toggle")
+    def do_toggle() -> Any:
+        locked = _is_locked()
+        # センサー未接続時は安全側: 明示エンドポイント使用を推奨
+        if locked is None:
+            response = _current()
+            response["error"] = "sensor_unavailable"
+            response["message"] = "施錠状態センサーが未設定のためトグルできません"
+            return jsonify(response), 409
+
+        if locked:
+            action_result = servo.unlock()
+            _set_last_unlock_now()
+            response = _current()
+            response["lastAction"] = action_result
+            return jsonify(response)
+
+        # unlocked -> lock (door open check)
+        door_open = _door_is_open()
+        if door_open is True:
+            response = _current()
+            response["error"] = "door_open"
+            response["message"] = "ドアが開いているため施錠できません"
+            return jsonify(response), 409
+
+        action_result = servo.lock()
+        response = _current()
+        response["lastAction"] = action_result
         return jsonify(response)
 
     @app.get("/")
     def index() -> Any:
         # 単一ページのUIを描画
         return render_template("index.html")
+
+    def _start_autolock_thread() -> None:
+        if not sensors:
+            return
+
+        sensors_local = sensors
+
+        nonlocal last_unlock_ts
+
+        # 起動時点で既に開錠なら、起動時刻を「前回開錠」とみなす
+        try:
+            if sensors_local.is_locked() is False:
+                state_lock.acquire()
+                try:
+                    last_unlock_ts = _now()
+                finally:
+                    state_lock.release()
+        except Exception:
+            pass
+
+        def _loop() -> None:
+            nonlocal last_unlock_ts
+            prev_locked: Optional[bool] = None
+            while True:
+                try:
+                    locked = sensors_local.is_locked()
+                    door_closed = sensors_local.is_door_closed()
+
+                    # 施錠->開錠への遷移を検知（手動開錠も含めてタイムスタンプ更新）
+                    if prev_locked is True and locked is False:
+                        state_lock.acquire()
+                        try:
+                            last_unlock_ts = _now()
+                        finally:
+                            state_lock.release()
+
+                    prev_locked = locked
+
+                    state_lock.acquire()
+                    try:
+                        als = auto_lock_seconds
+                        lu = last_unlock_ts
+                    finally:
+                        state_lock.release()
+
+                    if als > 0 and locked is False and door_closed is True and lu is not None:
+                        if (_now() - lu) >= als:
+                            # 施錠実行（サーボ制御は内部で排他）
+                            try:
+                                servo.lock()
+                            finally:
+                                # 直後に再連打しないよう、タイムスタンプを進めておく
+                                state_lock.acquire()
+                                try:
+                                    last_unlock_ts = _now()
+                                finally:
+                                    state_lock.release()
+
+                except Exception:
+                    # センサーの一時エラー等で落ちないようにする
+                    pass
+                time.sleep(0.5)
+
+        t = threading.Thread(target=_loop, name="smartlock-autolock", daemon=True)
+        t.start()
+
+    _start_autolock_thread()
 
     return app

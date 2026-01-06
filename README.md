@@ -69,7 +69,45 @@ python3 -m smartlock_servo
 
 - Web UI: `http(s)://<ラズパイIP>:8080/`
 - `POST /api/lock` / `POST /api/unlock`
+- `POST /api/toggle` (施錠状態に応じて施錠/開錠)
+- `POST /api/autolock` (自動施錠秒数を設定: `{"seconds": 10}` / `0`でOFF)
 - `GET /api/status`
+
+## リードスイッチ（施錠状態・ドア開閉）
+
+GPIOにリードスイッチを2つ接続し、状態表示と安全制御に利用できます。
+
+- 施錠状態スイッチ: **ONなら施錠 / OFFなら開錠**
+- ドア開閉スイッチ: **ONなら閉 / OFFなら開**
+
+配線は環境によって異なりますが、一般的には「GPIO + 内部プルアップ」「リードスイッチをGNDへ落とす」構成が多いです。
+この場合、スイッチON（閉回路）時にGPIOがLOWになりやすいため、デフォルト設定は`ACTIVE_LOW=true`になっています。
+
+### 環境変数
+
+| 変数 | 説明 | デフォルト |
+|------|------|-----------|
+| `SMARTLOCK_LOCK_SWITCH_PIN` | 施錠状態リードスイッチのGPIO(BCM) | 未設定（無効） |
+| `SMARTLOCK_DOOR_SWITCH_PIN` | ドア開閉リードスイッチのGPIO(BCM) | 未設定（無効） |
+| `SMARTLOCK_LOCK_SWITCH_ACTIVE_LOW` | 施錠スイッチ: ONをLOWとして扱う | `true` |
+| `SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW` | ドアスイッチ: ONをLOWとして扱う | `true` |
+| `SMARTLOCK_LOCK_SWITCH_PULL_UP` | 施錠スイッチ: 内部プルアップを使う | `true` |
+| `SMARTLOCK_DOOR_SWITCH_PULL_UP` | ドアスイッチ: 内部プルアップを使う | `true` |
+
+例:
+
+```bash
+export SMARTLOCK_LOCK_SWITCH_PIN=23
+export SMARTLOCK_DOOR_SWITCH_PIN=24
+export SMARTLOCK_LOCK_SWITCH_ACTIVE_LOW=true
+export SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW=true
+```
+
+### 動作仕様
+
+- Webのボタンはトグル式です（施錠なら「開錠」、開錠なら「施錠」）。
+- ドアが開いている状態で施錠しようとすると、ブラウザ側でダイアログを表示し、サーバー側でも施錠を拒否します。
+- 自動施錠は「前回の開錠」からの経過時間と「ドアが閉」の両方を満たした場合に施錠します。
 
 ## サービス化
 

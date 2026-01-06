@@ -9,44 +9,130 @@
     body { font-family: Arial, sans-serif; max-width: 480px; margin: 2rem auto; text-align: center; }
     button { font-size: 1.1rem; padding: 0.75rem 1.5rem; margin: 0.5rem; }
     .status { margin: 1rem 0; font-weight: bold; }
+    .row { margin: 0.75rem 0; }
+    input[type="number"] { font-size: 1rem; padding: 0.4rem; width: 8rem; }
   </style>
 </head>
 <body>
   <h1>スマートロック</h1>
   <div class="status" id="status">状態を取得しています...</div>
-  <div>
-    <button id="lock">施錠</button>
-    <button id="unlock">解錠</button>
+
+  <div class="row">
+    <div id="lockState">施錠状態: -</div>
+    <div id="doorState">ドア状態: -</div>
+  </div>
+
+  <div class="row">
+    <button id="toggle" disabled>...</button>
+  </div>
+
+  <div class="row">
+    <label>
+      自動施錠（秒）
+      <input id="autolockSeconds" type="number" min="0" step="1" value="0">
+    </label>
+    <button id="setAutolock">設定</button>
+    <div id="autolockState">自動施錠: -</div>
   </div>
   <script>
-    // APIから施錠状態を取得して表示を更新する
+    let latest = null;
+
+    function formatOnOff(v) {
+      if (v === null || v === undefined) return '未設定';
+      return v ? 'ON' : 'OFF';
+    }
+
+    function updateUI(data) {
+      latest = data;
+      const sensors = (data && data.sensors) || {};
+      const locked = sensors.locked;
+      const doorClosed = sensors.doorClosed;
+
+      document.getElementById('status').textContent = `Dry-run: ${data.dryRun}`;
+
+      if (locked === null || locked === undefined) {
+        document.getElementById('lockState').textContent = '施錠状態: 未設定';
+      } else {
+        document.getElementById('lockState').textContent = locked ? '施錠状態: 施錠' : '施錠状態: 開錠';
+      }
+
+      if (doorClosed === null || doorClosed === undefined) {
+        document.getElementById('doorState').textContent = 'ドア状態: 未設定';
+      } else {
+        document.getElementById('doorState').textContent = doorClosed ? 'ドア状態: 閉' : 'ドア状態: 開';
+      }
+
+      const toggle = document.getElementById('toggle');
+      if (locked === null || locked === undefined) {
+        toggle.disabled = true;
+        toggle.textContent = 'トグル不可';
+      } else {
+        toggle.disabled = false;
+        toggle.textContent = locked ? '開錠' : '施錠';
+      }
+
+      const al = (data && data.autoLock) || {};
+      const enabled = !!al.enabled;
+      const sec = al.seconds || 0;
+      const since = al.secondsSinceLastUnlock;
+      document.getElementById('autolockSeconds').value = String(Math.floor(sec));
+      if (!enabled) {
+        document.getElementById('autolockState').textContent = '自動施錠: OFF';
+      } else {
+        const sinceTxt = (since === null || since === undefined) ? '-' : since.toFixed(0);
+        document.getElementById('autolockState').textContent = `自動施錠: ON (${Math.floor(sec)}秒) / 前回開錠から${sinceTxt}秒`;
+      }
+    }
+
     async function refresh() {
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
-        document.getElementById('status').textContent = `状態: ${data.state} | Dry-run: ${data.dryRun}`;
+        updateUI(data);
       } catch (error) {
         document.getElementById('status').textContent = '状態を取得できません';
       }
     }
 
-    // POSTエンドポイントに指示を送り、完了後に再取得する
-    async function send(path) {
-      try {
-        await fetch(path, { method: 'POST' });
-        await refresh();
-      } catch (error) {
-        document.getElementById('status').textContent = 'コマンド実行に失敗しました';
-      }
+    async function postJson(path, body) {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
     }
 
-    // ボタン押下でAPIエンドポイントを呼び分ける
-    document.getElementById('lock').addEventListener('click', () => send('/api/lock'));
-    document.getElementById('unlock').addEventListener('click', () => send('/api/unlock'));
+    document.getElementById('toggle').addEventListener('click', async () => {
+      const sensors = (latest && latest.sensors) || {};
+      const locked = sensors.locked;
+      const doorClosed = sensors.doorClosed;
 
-    // 起動時と一定間隔でステータスを更新
+      // unlocked->lock の時のみ事前チェック
+      if (locked === false && doorClosed === false) {
+        alert('ドアが開いているため施錠できません');
+        return;
+      }
+
+      const result = await postJson('/api/toggle', {});
+      if (!result.ok && result.data && result.data.error === 'door_open') {
+        alert(result.data.message || 'ドアが開いているため施錠できません');
+      }
+      await refresh();
+    });
+
+    document.getElementById('setAutolock').addEventListener('click', async () => {
+      const seconds = Number(document.getElementById('autolockSeconds').value || 0);
+      const result = await postJson('/api/autolock', { seconds });
+      if (!result.ok) {
+        alert('自動施錠設定に失敗しました');
+      }
+      await refresh();
+    });
+
     refresh();
-    setInterval(refresh, 5000);
+    setInterval(refresh, 1000);
   </script>
 </body>
 </html>
