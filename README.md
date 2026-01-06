@@ -19,11 +19,11 @@ Flask + gpiozero + pigpio でMG996R標準サーボを制御するスマートロ
 ### ハードウェアPWM対応ピン
 
 | GPIO | PWMチャンネル |
-|------|--------------|
-| 12   | PWM0         |
-| 13   | PWM1         |
-| 18   | PWM0         |
-| 19   | PWM1         |
+| ---- | ------------- |
+| 12   | PWM0          |
+| 13   | PWM1          |
+| 18   | PWM0          |
+| 19   | PWM1          |
 
 ※ GPIO 12 または 18 を推奨（PWM0チャンネル）
 
@@ -40,16 +40,16 @@ GPIOZERO_PIN_FACTORY=pigpio python3 -m smartlock_servo --pin 12
 
 ### 主要オプション
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--pin` | サーボ信号線のGPIO番号 (BCM) | 18 |
-| `--lock-speed` | 施錠時の回転速度 (-1.0〜1.0) | 0.5 |
-| `--unlock-speed` | 解錠時の回転速度 (-1.0〜1.0) | -0.5 |
-| `--rotation-time` | 回転時間（秒） | 0.5 |
-| `--return-time-ratio` | 戻り時間の補正係数 | 0.95 |
-| `--dry-run` | ハード無しで挙動をシミュレート | - |
-| `--ssl adhoc` | 自己署名証明書を即席生成 | - |
-| `--ssl cert` | 用意した証明書でHTTPS待受 | - |
+| オプション            | 説明                           | デフォルト |
+| --------------------- | ------------------------------ | ---------- |
+| `--pin`               | サーボ信号線のGPIO番号 (BCM)   | 18         |
+| `--lock-speed`        | 施錠時の回転速度 (-1.0〜1.0)   | 0.5        |
+| `--unlock-speed`      | 解錠時の回転速度 (-1.0〜1.0)   | -0.5       |
+| `--rotation-time`     | 回転時間（秒）                 | 0.5        |
+| `--return-time-ratio` | 戻り時間の補正係数             | 0.95       |
+| `--dry-run`           | ハード無しで挙動をシミュレート | -          |
+| `--ssl adhoc`         | 自己署名証明書を即席生成       | -          |
+| `--ssl cert`          | 用意した証明書でHTTPS待受      | -          |
 
 ### 環境変数
 
@@ -85,14 +85,14 @@ GPIOにリードスイッチを2つ接続し、状態表示と安全制御に利
 
 ### 環境変数
 
-| 変数 | 説明 | デフォルト |
-|------|------|-----------|
-| `SMARTLOCK_LOCK_SWITCH_PIN` | 施錠状態リードスイッチのGPIO(BCM) | 未設定（無効） |
-| `SMARTLOCK_DOOR_SWITCH_PIN` | ドア開閉リードスイッチのGPIO(BCM) | 未設定（無効） |
-| `SMARTLOCK_LOCK_SWITCH_ACTIVE_LOW` | 施錠スイッチ: ONをLOWとして扱う | `true` |
-| `SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW` | ドアスイッチ: ONをLOWとして扱う | `true` |
-| `SMARTLOCK_LOCK_SWITCH_PULL_UP` | 施錠スイッチ: 内部プルアップを使う | `true` |
-| `SMARTLOCK_DOOR_SWITCH_PULL_UP` | ドアスイッチ: 内部プルアップを使う | `true` |
+| 変数                               | 説明                               | デフォルト     |
+| ---------------------------------- | ---------------------------------- | -------------- |
+| `SMARTLOCK_LOCK_SWITCH_PIN`        | 施錠状態リードスイッチのGPIO(BCM)  | 未設定（無効） |
+| `SMARTLOCK_DOOR_SWITCH_PIN`        | ドア開閉リードスイッチのGPIO(BCM)  | 未設定（無効） |
+| `SMARTLOCK_LOCK_SWITCH_ACTIVE_LOW` | 施錠スイッチ: ONをLOWとして扱う    | `true`         |
+| `SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW` | ドアスイッチ: ONをLOWとして扱う    | `true`         |
+| `SMARTLOCK_LOCK_SWITCH_PULL_UP`    | 施錠スイッチ: 内部プルアップを使う | `true`         |
+| `SMARTLOCK_DOOR_SWITCH_PULL_UP`    | ドアスイッチ: 内部プルアップを使う | `true`         |
 
 例:
 
@@ -141,9 +141,9 @@ sudo systemctl start smartlock
 
 ## トラブルシュート
 
-| 症状 | 対処法 |
-|------|--------|
-| サーボが震える/ばらつく | `GPIOZERO_PIN_FACTORY=pigpio` を指定、`sudo pigpiod` を実行 |
-| pigpioに接続できない | `sudo pigpiod` でデーモンを起動 |
-| 戻り位置がズレる | `--return-time-ratio` を調整（戻りすぎ→小さく、足りない→大きく） |
-| HTTPSで接続拒否 | ブラウザで `https://` を明示、自己署名は例外許可 |
+| 症状                    | 対処法                                                           |
+| ----------------------- | ---------------------------------------------------------------- |
+| サーボが震える/ばらつく | `GPIOZERO_PIN_FACTORY=pigpio` を指定、`sudo pigpiod` を実行      |
+| pigpioに接続できない    | `sudo pigpiod` でデーモンを起動                                  |
+| 戻り位置がズレる        | `--return-time-ratio` を調整（戻りすぎ→小さく、足りない→大きく） |
+| HTTPSで接続拒否         | ブラウザで `https://` を明示、自己署名は例外許可                 |
