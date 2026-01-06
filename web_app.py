@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import os
 import threading
 import time
 
@@ -34,9 +35,36 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
     last_unlock_ts: Optional[float] = None
     virtual_locked: Optional[bool] = None
 
+    # 施錠/開錠の完了確認タイムアウト（秒）
+    try:
+        action_confirm_timeout_s = float(
+            os.getenv("SMARTLOCK_ACTION_CONFIRM_TIMEOUT", "3.0")  # type: ignore[name-defined]
+        )
+    except Exception:
+        action_confirm_timeout_s = 3.0
+
     def _now() -> float:
         # MicroPython互換も意識してtime.timeを使用
         return float(time.time())
+
+    def _wait_for_lock_state(expected_locked: bool, timeout_s: float) -> Dict[str, Any]:
+        """リードスイッチで施錠状態が期待値になるまで待つ。
+
+        センサー未設定/取得不可の場合は confirmed=False で返す（動作をブロックしない）。
+        """
+        if not sensors:
+            return {"confirmed": False, "observedLocked": None, "source": "no_sensor"}
+
+        deadline = _now() + max(0.0, float(timeout_s))
+        observed: Optional[bool] = None
+        while _now() <= deadline:
+            observed = sensors.is_locked()
+            if observed is True and expected_locked is True:
+                return {"confirmed": True, "observedLocked": observed, "source": "sensor"}
+            if observed is False and expected_locked is False:
+                return {"confirmed": True, "observedLocked": observed, "source": "sensor"}
+            time.sleep(0.05)
+        return {"confirmed": False, "observedLocked": observed, "source": "timeout"}
 
     def _read_sensor_state() -> Dict[str, Any]:
         lock_on = sensors.lock_switch_on() if sensors else None
@@ -164,9 +192,16 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
             return jsonify(response), 409
 
         action_result = servo.lock()
-        _set_virtual_locked(True)
+        confirm = _wait_for_lock_state(True, action_confirm_timeout_s)
+        if confirm.get("confirmed") is True:
+            _set_virtual_locked(True)
+
         response = _current()
         response["lastAction"] = action_result
+        response["actionConfirm"] = confirm
+        if confirm.get("confirmed") is not True:
+            response["warning"] = "lock_not_confirmed"
+            response["message"] = "施錠コマンドは実行しましたが、リードスイッチで施錠完了を確認できませんでした"
         return jsonify(response)
 
     @app.post("/api/unlock")
@@ -175,10 +210,16 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
         action_result = servo.unlock()
 
         _set_last_unlock_now()
-        _set_virtual_locked(False)
+        confirm = _wait_for_lock_state(False, action_confirm_timeout_s)
+        if confirm.get("confirmed") is True:
+            _set_virtual_locked(False)
         
         response = _current()
         response["lastAction"] = action_result  # "unlocked"
+        response["actionConfirm"] = confirm
+        if confirm.get("confirmed") is not True:
+            response["warning"] = "unlock_not_confirmed"
+            response["message"] = "開錠コマンドは実行しましたが、リードスイッチで開錠完了を確認できませんでした"
         return jsonify(response)
 
     @app.post("/api/toggle")
@@ -188,9 +229,15 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
         if locked is None or locked is True:
             action_result = servo.unlock()
             _set_last_unlock_now()
-            _set_virtual_locked(False)
+            confirm = _wait_for_lock_state(False, action_confirm_timeout_s)
+            if confirm.get("confirmed") is True:
+                _set_virtual_locked(False)
             response = _current()
             response["lastAction"] = action_result
+            response["actionConfirm"] = confirm
+            if confirm.get("confirmed") is not True:
+                response["warning"] = "unlock_not_confirmed"
+                response["message"] = "開錠コマンドは実行しましたが、リードスイッチで開錠完了を確認できませんでした"
             return jsonify(response)
 
         # unlocked -> lock (door open check)
@@ -202,9 +249,15 @@ def create_app(servo: ServoController, sensors: Optional[ReedSwitchMonitor] = No
             return jsonify(response), 409
 
         action_result = servo.lock()
-        _set_virtual_locked(True)
+        confirm = _wait_for_lock_state(True, action_confirm_timeout_s)
+        if confirm.get("confirmed") is True:
+            _set_virtual_locked(True)
         response = _current()
         response["lastAction"] = action_result
+        response["actionConfirm"] = confirm
+        if confirm.get("confirmed") is not True:
+            response["warning"] = "lock_not_confirmed"
+            response["message"] = "施錠コマンドは実行しましたが、リードスイッチで施錠完了を確認できませんでした"
         return jsonify(response)
 
     @app.get("/")

@@ -109,6 +109,20 @@ export SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW=true
 - ドアが開いている状態で施錠しようとすると、ブラウザ側でダイアログを表示し、サーバー側でも施錠を拒否します。
 - 自動施錠は「前回の開錠」からの経過時間と「ドアが閉」の両方を満たした場合に施錠します。
 
+### 施錠/開錠の完了確認（リードスイッチ）
+
+`POST /api/lock` / `POST /api/unlock` / `POST /api/toggle` は、サーボ動作後に**施錠状態リードスイッチ**を短時間ポーリングし、
+期待する状態（施錠/開錠）になったことを確認します。
+
+- 確認できた場合: レスポンスに `actionConfirm.confirmed=true`
+- 確認できない場合（未配線/読めない/タイムアウト）: コマンド自体は実行しつつ、レスポンスに `warning` と `message` を付与
+
+確認待ちのタイムアウトは環境変数で変更できます:
+
+```bash
+export SMARTLOCK_ACTION_CONFIRM_TIMEOUT=3.0
+```
+
 ### pigpio と gpiozero の使い分け（推奨）
 
 - **推奨: pigpio**
