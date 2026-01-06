@@ -1,6 +1,6 @@
 # Smart Lock (Python版)
 
-Flask + gpiozero + pigpio でFS90R連続回転サーボを制御するスマートロックサービスです。REST API と簡易Web UIを同一プロセスで提供します。
+Flask + gpiozero + pigpio でMG996R標準サーボを制御するスマートロックのコードです。REST API と簡易Web UIを同一プロセスで提供します。
 
 ## 依存関係
 
