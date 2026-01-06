@@ -1,184 +1,138 @@
-# Smart Lock (Python版)
+# SmartLock_FU_raspi3
 
-Flask + gpiozero + pigpio でMG996R標準サーボを制御するスマートロックのコードです。REST API と簡易Web UIを同一プロセスで提供します。
+Raspberry Pi上でサーボ（MG996R想定）を動かしてサムターンを回し、Web UI/REST APIで施錠・開錠するためのアプリです。
+リードスイッチ2つ（施錠状態/ドア開閉）を使って状態表示・安全制御・自動施錠・完了確認を行います。
+
+## できること
+
+- 施錠/開錠（サーボを「中立→ターゲット→中立」に動かすモーメンタリー動作）
+- 状態表示
+	- 施錠状態: リードスイッチON=施錠 / OFF=開錠
+	- ドア開閉: リードスイッチON=閉 / OFF=開
+- Webのトグルボタン
+	- 施錠中は「開錠」ボタン、開錠中は「施錠」ボタン
+- 安全制御
+	- ドアが開いているのに施錠しようとしたら拒否（サーバーは409、UIはダイアログ）
+- 自動施錠
+	- 「前回の開錠から指定秒数経過」かつ「ドアが閉」のときに施錠
+- 完了確認
+	- 施錠/開錠コマンド実行後、施錠状態リードスイッチで完了を確認（タイムアウト付き）
+- 手動操作の反映
+	- 指で施錠/開錠（サムターン手動）しても、リードスイッチの変化がWebに反映されます
 
 ## 依存関係
 
-- Python 3.9+
-- `gpiozero` (`sudo apt install python3-gpiozero`)
-- `Flask` (`sudo apt install python3-flask`)
-- `pigpio` (`sudo apt install pigpio python3-pigpio`)
-- HTTPSを利用する場合: `python3-openssl`
+- Python 3.9+（Raspberry Pi OS推奨）
+- Flask
+- pigpio（推奨: `pigpiod`を使用）
+- gpiozero（サーボ制御で使用。`GPIOZERO_PIN_FACTORY=pigpio`推奨）
 
-## サーボ配線
-
-- **GPIO 12 (BCM)** → サーボの信号線（ハードウェアPWM対応ピン）
-- 5V 電源と GND を共有すること
-- 電流が不足する場合は外部電源を利用（GNDを共通に）
-
-### ハードウェアPWM対応ピン
-
-| GPIO | PWMチャンネル |
-| ---- | ------------- |
-| 12   | PWM0          |
-| 13   | PWM1          |
-| 18   | PWM0          |
-| 19   | PWM1          |
-
-※ GPIO 12 または 18 を推奨（PWM0チャンネル）
-
-## 起動方法
+例（Raspberry Pi OS）:
 
 ```bash
-# pigpioデーモンを起動（初回のみ、または再起動後）
-sudo pigpiod
-
-# サーバー起動（GPIO 12でハードウェアPWM）
-cd ~/smartlock
-GPIOZERO_PIN_FACTORY=pigpio python3 -m smartlock_servo --pin 12
+sudo apt update
+sudo apt install -y python3-flask python3-gpiozero pigpio python3-pigpio
 ```
 
-## 設定ファイル（推奨）
+## 配線
 
-本プロジェクトは `config.json` を設定の中心として利用します。
+### サーボ
 
-- 設定ファイル: [SmartLock_FU_raspi3/config.json](SmartLock_FU_raspi3/config.json)
-- 起動時に `--config` で指定可能（省略時は `config.json`）
+- サーボ信号線: `servo.pin`（デフォルトはGPIO 12）
+- 5V電源とGNDは必ず共有
+- 電流が不足する場合は外部電源を利用（GND共通）
 
-例:
+ハードウェアPWM対応ピン例:
 
-```bash
-sudo pigpiod
-cd ~/smartlock
-GPIOZERO_PIN_FACTORY=pigpio python3 -m smartlock_servo --config config.json
-```
+| GPIO | PWM  |
+| ---- | ---- |
+| 12   | PWM0 |
+| 13   | PWM1 |
+| 18   | PWM0 |
+| 19   | PWM1 |
 
-### どこに何を書くか
+### リードスイッチ（2つ）
+
+設定は [SmartLock_FU_raspi3/config.json](SmartLock_FU_raspi3/config.json) の `sensors.lock` と `sensors.door` に書きます。
+
+- 施錠状態スイッチ: ONなら施錠 / OFFなら開錠
+- ドア開閉スイッチ: ONなら閉 / OFFなら開
+
+多くの構成では「GPIO内部プルアップ + スイッチでGNDへ落とす」ため、
+その場合は `pull_up=true` / `active_low=true` が合います。
+
+## 設定（config.json）
+
+設定は原則すべて [SmartLock_FU_raspi3/config.json](SmartLock_FU_raspi3/config.json) に集約しています。
+
+主な項目:
 
 - サーボ: `servo.*`
-- リードスイッチ: `sensors.lock.*` / `sensors.door.*`
+- センサー: `sensors.lock.*` / `sensors.door.*`
 - Web: `web.*` / `web.ssl.*`
-- 自動施錠/完了確認: `features.auto_lock_seconds` / `features.action_confirm_timeout_seconds`
+- 機能: `features.auto_lock_seconds` / `features.action_confirm_timeout_seconds`
 
-### 主要オプション
+## 起動
 
-| オプション            | 説明                           | デフォルト |
-| --------------------- | ------------------------------ | ---------- |
-| `--pin`               | サーボ信号線のGPIO番号 (BCM)   | 18         |
-| `--lock-speed`        | 施錠時の回転速度 (-1.0〜1.0)   | 0.5        |
-| `--unlock-speed`      | 解錠時の回転速度 (-1.0〜1.0)   | -0.5       |
-| `--rotation-time`     | 回転時間（秒）                 | 0.5        |
-| `--return-time-ratio` | 戻り時間の補正係数             | 0.95       |
-| `--dry-run`           | ハード無しで挙動をシミュレート | -          |
-| `--ssl adhoc`         | 自己署名証明書を即席生成       | -          |
-| `--ssl cert`          | 用意した証明書でHTTPS待受      | -          |
-
-### 環境変数
-
-オプションは環境変数でも指定できます。
+1) pigpioデーモン起動
 
 ```bash
-export GPIOZERO_PIN_FACTORY=pigpio
-export SMARTLOCK_SERVO_PIN=12
-export SMARTLOCK_LOCK_SPEED=0.5
-export SMARTLOCK_UNLOCK_SPEED=-0.5
-export SMARTLOCK_ROTATION_TIME=0.5
-export SMARTLOCK_RETURN_TIME_RATIO=0.95
-python3 -m smartlock_servo
+sudo pigpiod
+```
+
+2) サーバー起動
+
+```bash
+cd SmartLock_FU_raspi3
+GPIOZERO_PIN_FACTORY=pigpio python3 -m smartlock_servo --config config.json
 ```
 
 ## Web UI / API
 
-- Web UI: `http(s)://<ラズパイIP>:8080/`
-- `POST /api/lock` / `POST /api/unlock`
-- `POST /api/toggle` (施錠状態に応じて施錠/開錠)
-- `POST /api/autolock` (自動施錠秒数を設定: `{"seconds": 10}` / `0`でOFF)
+- Web UI: `http(s)://<raspi-ip>:8080/`
+
+API:
+
 - `GET /api/status`
+- `POST /api/lock`
+- `POST /api/unlock`
+- `POST /api/toggle`
+- `POST /api/autolock`（例: `{"seconds": 10}`、`0`でOFF）
 
-## リードスイッチ（施錠状態・ドア開閉）
+完了確認について:
 
-GPIOにリードスイッチを2つ接続し、状態表示と安全制御に利用できます。
+- `POST /api/lock` / `POST /api/unlock` / `POST /api/toggle` は、実行後に施錠状態スイッチで完了を確認します。
+- 確認できない場合は、コマンド自体は実行しつつレスポンスに `warning` と `message` を付与します。
 
-- 施錠状態スイッチ: **ONなら施錠 / OFFなら開錠**
-- ドア開閉スイッチ: **ONなら閉 / OFFなら開**
+## pigpio と gpiozero
 
-配線は環境によって異なりますが、一般的には「GPIO + 内部プルアップ」「リードスイッチをGNDへ落とす」構成が多いです。
-この場合、スイッチON（閉回路）時にGPIOがLOWになりやすいため、デフォルト設定は`ACTIVE_LOW=true`になっています。
+- 入力（リードスイッチ）は pigpio を優先します（ノイズ対策の `glitch filter` が使えるため）。
+- サーボ出力は gpiozero（AngularServo）を利用しますが、`GPIOZERO_PIN_FACTORY=pigpio` を指定すると内部バックエンドがpigpioになります。
 
-### 環境変数
+## systemd サービス化
 
-| 変数                               | 説明                               | デフォルト     |
-| ---------------------------------- | ---------------------------------- | -------------- |
-| `SMARTLOCK_LOCK_SWITCH_PIN`        | 施錠状態リードスイッチのGPIO(BCM)  | 未設定（無効） |
-| `SMARTLOCK_DOOR_SWITCH_PIN`        | ドア開閉リードスイッチのGPIO(BCM)  | 未設定（無効） |
-| `SMARTLOCK_LOCK_SWITCH_ACTIVE_LOW` | 施錠スイッチ: ONをLOWとして扱う    | `true`         |
-| `SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW` | ドアスイッチ: ONをLOWとして扱う    | `true`         |
-| `SMARTLOCK_LOCK_SWITCH_PULL_UP`    | 施錠スイッチ: 内部プルアップを使う | `true`         |
-| `SMARTLOCK_DOOR_SWITCH_PULL_UP`    | ドアスイッチ: 内部プルアップを使う | `true`         |
-
-例:
-
-```bash
-export SMARTLOCK_LOCK_SWITCH_PIN=23
-export SMARTLOCK_DOOR_SWITCH_PIN=24
-export SMARTLOCK_LOCK_SWITCH_ACTIVE_LOW=true
-export SMARTLOCK_DOOR_SWITCH_ACTIVE_LOW=true
-```
-
-### 動作仕様
-
-- Webのボタンはトグル式です（施錠なら「開錠」、開錠なら「施錠」）。
-- ドアが開いている状態で施錠しようとすると、ブラウザ側でダイアログを表示し、サーバー側でも施錠を拒否します。
-- 自動施錠は「前回の開錠」からの経過時間と「ドアが閉」の両方を満たした場合に施錠します。
-
-### 施錠/開錠の完了確認（リードスイッチ）
-
-`POST /api/lock` / `POST /api/unlock` / `POST /api/toggle` は、サーボ動作後に**施錠状態リードスイッチ**を短時間ポーリングし、
-期待する状態（施錠/開錠）になったことを確認します。
-
-- 確認できた場合: レスポンスに `actionConfirm.confirmed=true`
-- 確認できない場合（未配線/読めない/タイムアウト）: コマンド自体は実行しつつ、レスポンスに `warning` と `message` を付与
-
-確認待ちのタイムアウトは環境変数で変更できます:
-
-```bash
-export SMARTLOCK_ACTION_CONFIRM_TIMEOUT=3.0
-```
-
-### pigpio と gpiozero の使い分け（推奨）
-
-- **推奨: pigpio**
-	- デーモン(`pigpiod`)経由でGPIOを扱うため、負荷が高い状況でも比較的安定しやすい
-	- 入力側は`glitch filter`などのノイズ対策が強い
-- **gpiozero**
-	- Python側の高レベルAPIで扱いやすい
-	- ただし本プロジェクトのサーボ制御は、`GPIOZERO_PIN_FACTORY=pigpio`を指定するとgpiozero内部でもpigpioバックエンドを利用できます
-
-本実装ではリードスイッチ入力は **pigpioを優先**し、pigpioが利用できない場合のみgpiozeroへフォールバックします。
-
-## サービス化
-
-`/etc/systemd/system/smartlock.service` を作成：
+例: `/etc/systemd/system/smartlock.service`
 
 ```ini
 [Unit]
-Description=Smart Lock Service
+Description=SmartLock service
 After=network.target pigpiod.service
 Requires=pigpiod.service
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/smartlock
+WorkingDirectory=/home/pi/SmartLock_FU_raspi3
 Environment=GPIOZERO_PIN_FACTORY=pigpio
-ExecStart=/usr/bin/python3 -m smartlock_servo --pin 12
+ExecStart=/usr/bin/python3 -m smartlock_servo --config /home/pi/SmartLock_FU_raspi3/config.json
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-有効化：
+有効化:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable pigpiod
@@ -188,9 +142,10 @@ sudo systemctl start smartlock
 
 ## トラブルシュート
 
-| 症状                    | 対処法                                                           |
-| ----------------------- | ---------------------------------------------------------------- |
-| サーボが震える/ばらつく | `GPIOZERO_PIN_FACTORY=pigpio` を指定、`sudo pigpiod` を実行      |
-| pigpioに接続できない    | `sudo pigpiod` でデーモンを起動                                  |
-| 戻り位置がズレる        | `--return-time-ratio` を調整（戻りすぎ→小さく、足りない→大きく） |
-| HTTPSで接続拒否         | ブラウザで `https://` を明示、自己署名は例外許可                 |
+| 症状                                             | 対処                                                                                                                       |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| センサーが反映されない                           | `pigpiod`が起動しているか確認（`sudo systemctl status pigpiod`）/ `config.json`のGPIO番号・`pull_up`・`active_low`を見直す |
+| 「ドアが開いているため施錠できません」が出続ける | ドアスイッチの配線/論理（`active_low`）が逆の可能性                                                                        |
+| 施錠/開錠の完了確認がタイムアウトする            | `features.action_confirm_timeout_seconds`を増やす / 施錠状態スイッチの位置を調整                                           |
+| サーボが震える/ばらつく                          | `GPIOZERO_PIN_FACTORY=pigpio`を指定 / `pigpiod`を起動                                                                      |
+| HTTPSを使いたい                                  | `web.ssl.mode`を`adhoc`または`cert`にして、必要なら`cert/key`を設定                                                        |
