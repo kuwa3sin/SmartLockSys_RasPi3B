@@ -1,7 +1,16 @@
-# SmartLock_FU_raspi3
+# SmartLockSys_RasPi3
 
 Raspberry Pi上でサーボ（MG996R想定）を動かしてサムターンを回し、Web UI/REST APIで施錠・開錠するためのアプリです。
 リードスイッチ2つ（施錠状態/ドア開閉）を使って状態表示・安全制御・自動施錠・完了確認を行います。
+
+## ディレクトリ構成
+
+- [config.json](SmartLockSys_RasPi3/config.json): 設定一式
+- [smartlock_servo.py](SmartLockSys_RasPi3/smartlock_servo.py): エントリポイント（CLI）
+- [web_app.py](SmartLockSys_RasPi3/web_app.py): Web UI / API
+- [servo_controller.py](SmartLockSys_RasPi3/servo_controller.py): サーボ制御
+- [sensor_controller.py](SmartLockSys_RasPi3/sensor_controller.py): センサー制御
+- [templates/index.html](SmartLockSys_RasPi3/templates/index.html): Web UI
 
 ## できること
 
@@ -34,6 +43,12 @@ sudo apt update
 sudo apt install -y python3-flask python3-gpiozero pigpio python3-pigpio
 ```
 
+## クイックスタート
+
+1) 配線と `config.json` のGPIO設定を確認
+2) `pigpiod` を起動
+3) サーバー起動（`GPIOZERO_PIN_FACTORY=pigpio` を推奨）
+
 ## 配線
 
 ### サーボ
@@ -53,7 +68,7 @@ sudo apt install -y python3-flask python3-gpiozero pigpio python3-pigpio
 
 ### リードスイッチ（2つ）
 
-設定は [SmartLock_FU_raspi3/config.json](SmartLock_FU_raspi3/config.json) の `sensors.lock` と `sensors.door` に書きます。
+設定は [SmartLockSys_RasPi3/config.json](SmartLockSys_RasPi3/config.json) の `sensors.lock` と `sensors.door` に書きます。
 
 - 施錠状態スイッチ: ONなら施錠 / OFFなら開錠
 - ドア開閉スイッチ: ONなら閉 / OFFなら開
@@ -63,7 +78,7 @@ sudo apt install -y python3-flask python3-gpiozero pigpio python3-pigpio
 
 ## 設定（config.json）
 
-設定は原則すべて [SmartLock_FU_raspi3/config.json](SmartLock_FU_raspi3/config.json) に集約しています。
+設定は原則すべて [SmartLockSys_RasPi3/config.json](SmartLockSys_RasPi3/config.json) に集約しています。
 
 主な項目:
 
@@ -83,7 +98,7 @@ sudo pigpiod
 2) サーバー起動
 
 ```bash
-cd SmartLock_FU_raspi3
+cd SmartLockSys_RasPi3
 GPIOZERO_PIN_FACTORY=pigpio python3 -m smartlock_servo --config config.json
 ```
 
@@ -122,9 +137,9 @@ Requires=pigpiod.service
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/SmartLock_FU_raspi3
+WorkingDirectory=/home/pi/SmartLockSys_RasPi3
 Environment=GPIOZERO_PIN_FACTORY=pigpio
-ExecStart=/usr/bin/python3 -m smartlock_servo --config /home/pi/SmartLock_FU_raspi3/config.json
+ExecStart=/usr/bin/python3 -m smartlock_servo --config /home/pi/SmartLockSys_RasPi3/config.json
 Restart=on-failure
 
 [Install]
